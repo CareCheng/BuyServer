@@ -1,0 +1,340 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 主题变量 */
+:root {
+  /* 深色主题（默认） */
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-tertiary: #334155;
+  --bg-card: rgba(30, 41, 59, 0.8);
+  --bg-input: rgba(30, 41, 59, 0.5);
+  --border-color: #334155;
+  --border-light: rgba(51, 65, 85, 0.5);
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-muted: #64748b;
+  --text-placeholder: #475569;
+  --gradient-from: #0f172a;
+  --gradient-via: #581c87;
+  --gradient-to: #0f172a;
+  --scrollbar-track: rgba(15, 23, 42, 0.5);
+  --scrollbar-thumb: rgba(100, 116, 139, 0.5);
+  --toast-bg: #1e293b;
+  --toast-text: #f1f5f9;
+  --toast-border: #334155;
+}
+
+[data-theme="light"] {
+  /* 浅色主题 */
+  --bg-primary: #f8fafc;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f1f5f9;
+  --bg-card: rgba(255, 255, 255, 0.9);
+  --bg-input: rgba(241, 245, 249, 0.8);
+  --border-color: #e2e8f0;
+  --border-light: rgba(226, 232, 240, 0.8);
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-placeholder: #94a3b8;
+  --gradient-from: #f8fafc;
+  --gradient-via: #e0e7ff;
+  --gradient-to: #f8fafc;
+  --scrollbar-track: rgba(241, 245, 249, 0.8);
+  --scrollbar-thumb: rgba(148, 163, 184, 0.5);
+  --toast-bg: #ffffff;
+  --toast-text: #0f172a;
+  --toast-border: #e2e8f0;
+}
+
+/* 基础样式 */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: linear-gradient(135deg, var(--gradient-from), var(--gradient-via), var(--gradient-to));
+  color: var(--text-primary);
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+}
+
+/* 隐藏滚动条但保持滚动功能 */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
+}
+
+/* 输入框焦点样式 */
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+}
+
+/* 按钮基础样式 */
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 inline-flex items-center justify-center gap-2;
+  }
+
+  .btn-primary {
+    @apply bg-primary-500 hover:bg-primary-600 text-white shadow-lg shadow-primary-500/25;
+  }
+
+  .btn-secondary {
+    @apply bg-dark-700 hover:bg-dark-600 text-dark-200 border border-dark-600;
+  }
+
+  .btn-success {
+    @apply bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/25;
+  }
+
+  .btn-danger {
+    @apply bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-600/25;
+  }
+
+  .btn-warning {
+    @apply bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-600/25;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-sm;
+  }
+
+  .btn-lg {
+    @apply px-6 py-3 text-lg;
+  }
+
+  .btn-block {
+    @apply w-full;
+  }
+
+  /* 卡片样式 */
+  .card {
+    background: var(--bg-card);
+    @apply backdrop-blur-xl rounded-2xl shadow-xl;
+    border: 1px solid var(--border-light);
+  }
+
+  /* 输入框样式 */
+  .input {
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    @apply w-full h-12 px-4 rounded-xl focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-all duration-200;
+  }
+  
+  .input::placeholder {
+    color: var(--text-placeholder);
+  }
+
+  /* textarea 特殊处理 */
+  textarea.input {
+    @apply h-auto py-3;
+  }
+
+  /* select 特殊处理 */
+  select.input {
+    @apply h-12 py-0;
+  }
+
+  /* 标签样式 */
+  .badge {
+    @apply px-3 py-1 rounded-full text-xs font-medium;
+  }
+
+  .badge-success {
+    @apply bg-emerald-500/20 text-emerald-400 border border-emerald-500/30;
+  }
+
+  .badge-warning {
+    @apply bg-amber-500/20 text-amber-400 border border-amber-500/30;
+  }
+
+  .badge-danger {
+    @apply bg-red-500/20 text-red-400 border border-red-500/30;
+  }
+
+  .badge-info {
+    @apply bg-blue-500/20 text-blue-400 border border-blue-500/30;
+  }
+
+  /* 模态框遮罩 */
+  .modal-overlay {
+    @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4;
+  }
+
+  .modal-content {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-light);
+    @apply rounded-2xl shadow-2xl w-full max-h-[90vh] overflow-y-auto;
+  }
+
+  /* 导航栏 */
+  .navbar {
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-light);
+    @apply backdrop-blur-xl sticky top-0 z-40;
+  }
+
+  /* 特性卡片 */
+  .feature-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    @apply backdrop-blur-sm rounded-2xl p-6 hover:border-primary-500/50 transition-all duration-300 hover:shadow-lg hover:shadow-primary-500/10;
+  }
+
+  /* 商品卡片 */
+  .product-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    @apply backdrop-blur-sm rounded-2xl overflow-hidden hover:border-primary-500/50 transition-all duration-300 cursor-pointer hover:shadow-xl hover:shadow-primary-500/10 hover:-translate-y-1;
+  }
+
+  /* 标签页 */
+  .tab {
+    @apply px-6 py-3 text-dark-400 hover:text-dark-200 border-b-2 border-transparent transition-all duration-200 cursor-pointer;
+  }
+
+  .tab.active {
+    @apply text-primary-400 border-primary-500;
+  }
+
+  /* 安全卡片 */
+  .security-card {
+    @apply flex justify-between items-center p-4 bg-dark-700/30 rounded-xl border border-dark-600/50;
+  }
+
+  /* 步骤指示器 */
+  .step-dot {
+    @apply w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-all duration-200;
+  }
+
+  .step-dot.active {
+    @apply bg-primary-500 text-white;
+  }
+
+  .step-dot.done {
+    @apply bg-emerald-500 text-white;
+  }
+
+  /* 验证码输入框 */
+  .verify-code-input {
+    @apply w-full px-4 py-4 text-2xl text-center tracking-[0.5em] bg-dark-800/50 border border-dark-600 rounded-xl text-dark-100 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-all duration-200;
+  }
+
+  /* 设置步骤 */
+  .setup-step {
+    @apply bg-dark-700/30 rounded-xl p-5 mb-4;
+  }
+
+  .setup-step-title {
+    @apply font-semibold text-dark-200 mb-3 flex items-center gap-2;
+  }
+
+  /* 选项卡片 */
+  .option-card {
+    @apply flex-1 p-5 border-2 border-dark-600 rounded-xl cursor-pointer text-center transition-all duration-200 hover:border-primary-500/50;
+  }
+
+  .option-card.active {
+    @apply border-primary-500 bg-primary-500/10;
+  }
+}
+
+/* 动画 */
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+
+/* 玻璃卡片 */
+.glass-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  @apply backdrop-blur-xl rounded-2xl shadow-2xl;
+}
+
+/* 设置选项 */
+.setup-option {
+  @apply flex-1 p-5 border-2 border-dark-600 rounded-xl cursor-pointer text-center transition-all duration-200 hover:border-primary-500/50;
+}
+
+.setup-option.active {
+  @apply border-primary-500 bg-primary-500/10;
+}
+
+/* 步骤编号 */
+.step-num {
+  @apply w-6 h-6 bg-primary-500 text-white rounded-full flex items-center justify-center text-xs font-medium;
+}
+
+/* 二维码容器 */
+.qrcode-box {
+  @apply bg-white rounded-lg p-4 inline-block;
+}
+
+/* 密钥输入框 */
+.secret-input {
+  @apply w-full px-4 py-3 font-mono text-sm bg-dark-700/50 border border-dark-600 rounded-lg text-dark-300 break-all;
+}
+
+/* 渐变背景 */
+.gradient-bg {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+}
+
+/* 加载动画 */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.fa-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* 响应式隐藏 */
+@media (max-width: 768px) {
+  .hide-mobile {
+    display: none;
+  }
+}

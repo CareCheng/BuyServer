@@ -1,9 +1,9 @@
 # KamiServer
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat-square&logo=go" alt="Go Version">
-  <img src="https://img.shields.io/badge/React-18.3-61DAFB?style=flat-square&logo=react" alt="React">
-  <img src="https://img.shields.io/badge/Next.js-14.2-000000?style=flat-square&logo=next.js" alt="Next.js">
+  <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat-square&logo=go" alt="Go Version">
+  <img src="https://img.shields.io/badge/React-19.2-61DAFB?style=flat-square&logo=react" alt="React">
+  <img src="https://img.shields.io/badge/Next.js-16.1-000000?style=flat-square&logo=next.js" alt="Next.js">
   <img src="https://img.shields.io/badge/License-GPL%20v3-blue?style=flat-square" alt="License">
 </p>
 
@@ -84,7 +84,7 @@
 
 ### 环境要求
 
-- Go 1.21+
+- Go 1.25+
 - Node.js 18+（前端构建）
 
 ### 构建
@@ -131,12 +131,12 @@
 
 | 组件 | 技术 |
 |------|------|
-| 后端框架 | Go + Gin |
-| ORM | GORM |
+| 后端框架 | Go 1.25 + Gin 1.11 |
+| ORM | GORM 1.31 |
 | 数据库 | MySQL / PostgreSQL / SQLite |
-| 前端框架 | React + Next.js + TypeScript |
-| 样式 | Tailwind CSS |
-| 状态管理 | Zustand |
+| 前端框架 | React 19 + Next.js 16 + TypeScript 5 |
+| 样式 | Tailwind CSS 3.4 |
+| 状态管理 | Zustand 5 |
 | 实时通信 | WebSocket |
 | 认证 | Session + Cookie + TOTP |
 | 加密 | bcrypt + AES-GCM |

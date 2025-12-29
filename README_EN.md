@@ -1,9 +1,9 @@
 # KamiServer
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat-square&logo=go" alt="Go Version">
-  <img src="https://img.shields.io/badge/React-18.3-61DAFB?style=flat-square&logo=react" alt="React">
-  <img src="https://img.shields.io/badge/Next.js-14.2-000000?style=flat-square&logo=next.js" alt="Next.js">
+  <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat-square&logo=go" alt="Go Version">
+  <img src="https://img.shields.io/badge/React-19.2-61DAFB?style=flat-square&logo=react" alt="React">
+  <img src="https://img.shields.io/badge/Next.js-16.1-000000?style=flat-square&logo=next.js" alt="Next.js">
   <img src="https://img.shields.io/badge/License-GPL%20v3-blue?style=flat-square" alt="License">
 </p>
 
@@ -84,7 +84,7 @@
 
 ### Requirements
 
-- Go 1.21+
+- Go 1.25+
 - Node.js 18+ (for frontend build)
 
 ### Build
@@ -131,12 +131,12 @@ On first access to the admin panel, the system will guide you to set the adminis
 
 | Component | Technology |
 |-----------|------------|
-| Backend Framework | Go + Gin |
-| ORM | GORM |
+| Backend Framework | Go 1.25 + Gin 1.11 |
+| ORM | GORM 1.31 |
 | Database | MySQL / PostgreSQL / SQLite |
-| Frontend Framework | React + Next.js + TypeScript |
-| Styling | Tailwind CSS |
-| State Management | Zustand |
+| Frontend Framework | React 19 + Next.js 16 + TypeScript 5 |
+| Styling | Tailwind CSS 3.4 |
+| State Management | Zustand 5 |
 | Real-time Communication | WebSocket |
 | Authentication | Session + Cookie + TOTP |
 | Encryption | bcrypt + AES-GCM |

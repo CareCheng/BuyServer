@@ -2,8 +2,8 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat-square&logo=go" alt="Go Version">
-  <img src="https://img.shields.io/badge/React-19.2-61DAFB?style=flat-square&logo=react" alt="React">
-  <img src="https://img.shields.io/badge/Next.js-16.1-000000?style=flat-square&logo=next.js" alt="Next.js">
+  <img src="https://img.shields.io/badge/React-19.2.3-61DAFB?style=flat-square&logo=react" alt="React">
+  <img src="https://img.shields.io/badge/Next.js-16.1.1-000000?style=flat-square&logo=next.js" alt="Next.js">
   <img src="https://img.shields.io/badge/License-GPL%20v3-blue?style=flat-square" alt="License">
 </p>
 

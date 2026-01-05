@@ -151,6 +151,88 @@ export function KamiManager({ isOpen, onClose, product, onDataChange }: KamiMana
     }
   }
 
+  // 表头关键词列表
+  const headerKeywords = ['kami', 'code', '卡密', '密码', 'password', 'key', 'serial', '序列号', '激活码', '兑换码', 'cdkey', 'license', '账号', 'account', 'username', 'id', '编号']
+  
+  // 判断是否为表头行
+  const isHeaderLine = (line: string) => {
+    const lower = line.toLowerCase()
+    return headerKeywords.some(h => lower === h || lower.startsWith(h + ',') || lower.startsWith(h + '\t'))
+  }
+
+  // 智能解析卡密文本
+  const parseKamiText = (text: string): string[] => {
+    text = text.trim()
+    if (!text) return []
+
+    // 尝试解析 JSON 数组
+    if (text.startsWith('[')) {
+      try {
+        const jsonCodes = JSON.parse(text) as string[]
+        if (Array.isArray(jsonCodes)) {
+          return jsonCodes.map(c => c.trim()).filter(c => c && !isHeaderLine(c))
+        }
+      } catch {}
+    }
+
+    // 统一换行符
+    text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+    const lines = text.split('\n')
+
+    // 检测主要分隔符
+    let delimiter = ''
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed || isHeaderLine(trimmed)) continue
+      if (trimmed.includes(',')) { delimiter = ','; break }
+      if (trimmed.includes(';')) { delimiter = ';'; break }
+      if (trimmed.includes('\t')) { delimiter = '\t'; break }
+    }
+
+    const codes: string[] = []
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed || isHeaderLine(trimmed)) continue
+
+      if (delimiter) {
+        const parts = trimmed.split(delimiter)
+        for (const part of parts) {
+          const code = part.trim()
+          if (code && !isHeaderLine(code)) codes.push(code)
+        }
+      } else {
+        codes.push(trimmed)
+      }
+    }
+    return codes
+  }
+
+  // 检测卡密格式
+  const detectFormat = (code: string): string => {
+    if (code.includes('----')) return '账号----密码'
+    if (/^[^:]+:[^:]+$/.test(code) && !code.includes('://')) return '账号:密码'
+    if (/^[^|]+\|[^|]+$/.test(code)) return '账号|密码'
+    if (/^[A-Z0-9]{4,5}-[A-Z0-9]{4,5}-[A-Z0-9]{4,5}/.test(code)) return '标准卡密'
+    if (/^[A-Fa-f0-9]{32}$/.test(code)) return 'MD5格式'
+    if (/^[A-Za-z0-9+/]{20,}={0,2}$/.test(code)) return 'Base64'
+    if (/^[A-Za-z0-9]{16,}$/.test(code)) return '纯字母数字'
+    return '自定义格式'
+  }
+
+  // 获取已解析的卡密列表和格式统计
+  const getParsedInfo = () => {
+    const codes = parseKamiText(importCodes)
+    if (codes.length === 0) return null
+    const formats: Record<string, number> = {}
+    codes.forEach(code => {
+      const fmt = detectFormat(code)
+      formats[fmt] = (formats[fmt] || 0) + 1
+    })
+    return { count: codes.length, formats }
+  }
+
+  const parsedInfo = importCodes ? getParsedInfo() : null
+
   // 处理文件导入
   const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -159,11 +241,7 @@ export function KamiManager({ isOpen, onClose, product, onDataChange }: KamiMana
     reader.onload = (event) => {
       const content = event.target?.result as string
       if (content) {
-        // 解析 CSV/TXT 文件，支持逗号、换行分隔
-        const codes = content
-          .split(/[\r\n,]+/)
-          .map(line => line.trim())
-          .filter(line => line && !line.toLowerCase().startsWith('kami') && !line.toLowerCase().startsWith('code') && !line.toLowerCase().startsWith('卡密'))
+        const codes = parseKamiText(content)
         setImportCodes(codes.join('\n'))
         toast.success(`已读取 ${codes.length} 个卡密`)
       }
@@ -306,7 +384,7 @@ export function KamiManager({ isOpen, onClose, product, onDataChange }: KamiMana
             <div className="flex gap-2">
               <input
                 type="file"
-                accept=".csv,.txt"
+                accept=".csv,.txt,.json"
                 className="hidden"
                 id="kami-file-input"
                 onChange={handleFileImport}
@@ -316,11 +394,11 @@ export function KamiManager({ isOpen, onClose, product, onDataChange }: KamiMana
                 className="flex-1 px-4 py-3 bg-dark-700 border border-dark-600 border-dashed rounded-lg text-dark-300 text-center cursor-pointer hover:bg-dark-600 hover:border-dark-500 transition-colors"
               >
                 <i className="fas fa-file-upload mr-2" />
-                点击选择 CSV 或 TXT 文件
+                点击选择 CSV、TXT 或 JSON 文件
               </label>
             </div>
             <p className="text-xs text-dark-500 mt-1">
-              支持 CSV 和 TXT 格式，每行一个卡密或逗号分隔
+              支持多种格式自动识别，自动过滤表头行
             </p>
           </div>
 
@@ -336,14 +414,19 @@ export function KamiManager({ isOpen, onClose, product, onDataChange }: KamiMana
             <label className="block text-sm font-medium text-dark-300 mb-1">卡密内容</label>
             <textarea 
               className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-dark-100 h-40 font-mono text-sm"
-              placeholder="每行一个卡密，例如：&#10;KAMI-XXXX-XXXX-XXXX&#10;KAMI-YYYY-YYYY-YYYY&#10;KAMI-ZZZZ-ZZZZ-ZZZZ"
+              placeholder="支持多种格式自动识别：&#10;&#10;• 换行分隔：每行一个卡密&#10;• 逗号/分号分隔：code1,code2,code3&#10;• JSON数组：[&quot;code1&quot;,&quot;code2&quot;]&#10;• 账号密码：account----password&#10;• 账号密码：account:password&#10;• 账号密码：account|password"
               value={importCodes}
               onChange={(e) => setImportCodes(e.target.value)}
             />
-            {importCodes && (
-              <p className="text-xs text-dark-400 mt-1">
-                已输入 {importCodes.split('\n').filter(l => l.trim()).length} 个卡密
-              </p>
+            {parsedInfo && (
+              <div className="mt-2 p-2 bg-dark-700/50 rounded text-xs">
+                <div className="text-dark-300">
+                  已识别 <span className="text-primary-400 font-medium">{parsedInfo.count}</span> 个卡密
+                </div>
+                <div className="text-dark-500 mt-1">
+                  格式：{Object.entries(parsedInfo.formats).map(([fmt, count]) => `${fmt}(${count})`).join('、')}
+                </div>
+              </div>
             )}
           </div>
 

@@ -4,21 +4,22 @@
 # ==========================================
 #
 # 用法:
-#   ./build.sh              # 默认编译 Linux 版本（外部资源模式）
-#   ./build.sh --embed      # 将前端资源嵌入到程序中（单文件模式）
-#   ./build.sh --clean      # 清理构建目录
-#   ./build.sh --force      # 强制重新构建前端
+#   ./build.sh                       # 默认编译 Linux/amd64 (外部资源模式)
+#   ./build.sh --mac                 # 编译 macOS/amd64
+#   ./build.sh --win                 # 编译 Windows/amd64
+#   ./build.sh --all                 # 编译所有平台 (Win, Lin, Mac) 的 amd64 版本
+#   ./build.sh --arm                 # 编译 arm64 架构 (配合 --all 或特定平台使用)
+#   ./build.sh --all --arm --x64     # 编译所有平台的所有架构
+#   ./build.sh --embed               # 嵌入模式 (单文件)
+#   ./build.sh --clean               # 清理
 #
-# 构建模式:
-#   外部资源模式（默认）：前端资源作为独立文件，程序从 ./web/ 目录加载
-#   嵌入模式（--embed）：前端资源打包进二进制文件，生成单个可执行文件
-#
-# 目录结构:
-#   dist/
-#   ├── build/              # 编译中间文件
-#   │   ├── web/            # 前端 .next
-#   │   └── node_modules/   # 前端依赖
-#   └── linux/              # Linux 最终输出
+# 参数:
+#   --linux, --mac, --win: 指定目标操作系统
+#   --all:      选中所有操作系统
+#   --arm:      包含 ARM64 架构
+#   --x64:      包含 AMD64 架构 (默认如果不指定 --arm)
+#   --embed:    嵌入前端资源
+#   --force:    强制重新构建前端
 #
 # ==========================================
 
@@ -42,26 +43,57 @@ cd "$SCRIPT_DIR"
 EMBED_MODE=false
 FORCE_BUILD=false
 CLEAN_MODE=false
+BUILD_LINUX=false
+BUILD_MAC=false
+BUILD_WIN=false
+BUILD_ALL=false
+ARCH_ARM=false
+ARCH_X64=false
 
 for arg in "$@"; do
     case $arg in
-        --embed|-e)
-            EMBED_MODE=true
-            ;;
-        --force|-f)
-            FORCE_BUILD=true
-            ;;
-        --clean|clean)
-            CLEAN_MODE=true
-            ;;
+        --embed|-e) EMBED_MODE=true ;;
+        --force|-f) FORCE_BUILD=true ;;
+        --clean|clean) CLEAN_MODE=true ;;
+        --linux) BUILD_LINUX=true ;;
+        --mac|--darwin|-m) BUILD_MAC=true ;;
+        --win|--windows|-w) BUILD_WIN=true ;;
+        --all|-a) BUILD_ALL=true ;;
+        --arm) ARCH_ARM=true ;;
+        --x64) ARCH_X64=true ;;
     esac
 done
+
+# 确定目标平台
+TARGET_OS=""
+if [ "$BUILD_ALL" = true ]; then
+    TARGET_OS="linux darwin windows"
+else
+    [ "$BUILD_LINUX" = true ] && TARGET_OS="$TARGET_OS linux"
+    [ "$BUILD_MAC" = true ] && TARGET_OS="$TARGET_OS darwin"
+    [ "$BUILD_WIN" = true ] && TARGET_OS="$TARGET_OS windows"
+fi
+
+# 默认 Linux
+if [ -z "$TARGET_OS" ]; then
+    TARGET_OS="linux"
+fi
+
+# 确定目标架构
+TARGET_ARCH=""
+[ "$ARCH_ARM" = true ] && TARGET_ARCH="$TARGET_ARCH arm64"
+[ "$ARCH_X64" = true ] && TARGET_ARCH="$TARGET_ARCH amd64"
+
+# 默认 amd64
+if [ -z "$TARGET_ARCH" ]; then
+    TARGET_ARCH="amd64"
+fi
 
 # 编译中间文件目录
 BUILD_DIR="$SCRIPT_DIR/dist/build"
 WEB_BUILD_DIR="$BUILD_DIR/web"
 CACHED_NODE_MODULES="$BUILD_DIR/node_modules"
-DIST_DIR="$SCRIPT_DIR/dist/linux"
+DIST_ROOT="$SCRIPT_DIR/dist"
 STATIC_DIR="$SCRIPT_DIR/internal/static"
 EMBED_WEB_DIR="$STATIC_DIR/web"
 
@@ -81,10 +113,14 @@ print_info "  User Linux 构建脚本"
 print_info "=========================================="
 echo ""
 
+print_info "构建目标:"
+for os in $TARGET_OS; do
+    for arch in $TARGET_ARCH; do
+        echo "  - $os ($arch)"
+    done
+done
 if [ "$EMBED_MODE" = true ]; then
-    print_info "构建模式: 嵌入模式（单文件）"
-else
-    print_info "构建模式: 外部资源模式"
+    print_warn "  - 嵌入模式: 前端资源将打包进程序"
 fi
 
 # 检查 Go
@@ -108,22 +144,17 @@ fi
 
 # 创建目录
 mkdir -p "$BUILD_DIR"
-mkdir -p "$DIST_DIR"
+mkdir -p "$DIST_ROOT"
 
 # ==========================================
 #         前端增量构建检测
 # ==========================================
 
-# 计算前端源码哈希值
 get_web_source_hash() {
     local hash_input=""
-    
-    # 收集 web/src 目录下所有文件内容
     if [ -d "web/src" ]; then
         hash_input=$(find web/src -type f -exec md5sum {} \; 2>/dev/null | sort | md5sum | cut -d' ' -f1)
     fi
-    
-    # 添加关键配置文件
     local config_files="web/package.json web/package-lock.json web/next.config.js web/next.config.mjs web/next.config.ts web/tsconfig.json web/tailwind.config.js web/tailwind.config.ts"
     local config_hash=""
     for file in $config_files; do
@@ -131,38 +162,20 @@ get_web_source_hash() {
             config_hash="$config_hash$(md5sum "$file" 2>/dev/null | cut -d' ' -f1)"
         fi
     done
-    
-    # 组合哈希
     echo "${hash_input}${config_hash}" | md5sum | cut -d' ' -f1
 }
 
-# 检查前端是否需要重新构建
 web_needs_build() {
     local hash_file="$BUILD_DIR/.web_hash"
     local web_out_dir="web/out"
-    
-    # 如果输出目录不存在，需要构建
-    if [ ! -d "$web_out_dir" ]; then
-        return 0
-    fi
-    
-    # 如果哈希文件不存在，需要构建
-    if [ ! -f "$hash_file" ]; then
-        return 0
-    fi
-    
-    # 比较哈希值
+    if [ ! -d "$web_out_dir" ]; then return 0; fi
+    if [ ! -f "$hash_file" ]; then return 0; fi
     local current_hash=$(get_web_source_hash)
     local saved_hash=$(cat "$hash_file" 2>/dev/null)
-    
-    if [ "$current_hash" != "$saved_hash" ]; then
-        return 0
-    fi
-    
+    if [ "$current_hash" != "$saved_hash" ]; then return 0; fi
     return 1
 }
 
-# 保存前端哈希值
 save_web_hash() {
     local hash_file="$BUILD_DIR/.web_hash"
     mkdir -p "$BUILD_DIR"
@@ -184,13 +197,11 @@ elif [ "$FORCE_BUILD" != true ] && ! web_needs_build; then
 else
     local_node_modules="web/node_modules"
     
-    # 如果缓存的 node_modules 存在，复制到 web 目录
     if [ -d "$CACHED_NODE_MODULES" ] && [ ! -d "$local_node_modules" ]; then
         print_info "从缓存恢复 node_modules..."
         cp -r "$CACHED_NODE_MODULES" "$local_node_modules"
     fi
     
-    # 安装依赖
     if [ ! -d "$local_node_modules" ]; then
         print_info "安装前端依赖..."
         pushd web > /dev/null
@@ -198,15 +209,12 @@ else
         popd > /dev/null
     fi
     
-    # 构建前端
     print_info "构建前端..."
     pushd web > /dev/null
     npm run build
     popd > /dev/null
     
     print_success "前端构建完成"
-    
-    # 保存哈希值
     save_web_hash
 fi
 
@@ -216,29 +224,19 @@ fi
 
 prepare_embed_resources() {
     print_info "========== 准备嵌入式资源 =========="
-    
     local web_out_dir="web/out"
-    
     if [ ! -d "$web_out_dir" ]; then
         print_error "前端构建输出目录不存在: $web_out_dir"
         print_error "请先构建前端"
         return 1
     fi
-    
-    # 确保 static 目录存在
     mkdir -p "$STATIC_DIR"
-    
-    # 清理旧的嵌入资源
     rm -rf "$EMBED_WEB_DIR"
-    
-    # 复制前端资源到嵌入目录
     print_info "复制前端资源到嵌入目录..."
     cp -r "$web_out_dir" "$EMBED_WEB_DIR"
-    
     local file_count=$(find "$EMBED_WEB_DIR" -type f | wc -l)
     local total_size=$(du -sh "$EMBED_WEB_DIR" | cut -f1)
     print_success "已准备嵌入式资源: $file_count 个文件, $total_size"
-    
     return 0
 }
 
@@ -250,122 +248,103 @@ cleanup_embed_resources() {
 }
 
 # ==========================================
-#         创建必要目录
-# ==========================================
-
-mkdir -p "$DIST_DIR/user_config"
-mkdir -p "$DIST_DIR/Product"
-mkdir -p "$DIST_DIR/backups"
-
-# ==========================================
-#         嵌入模式：准备资源
+#         构建循环
 # ==========================================
 
 if [ "$EMBED_MODE" = true ]; then
-    if ! prepare_embed_resources; then
-        exit 1
-    fi
+    if ! prepare_embed_resources; then exit 1; fi
 fi
 
-# ==========================================
-#         编译 Go
-# ==========================================
+START_TIME=$(date +%s)
 
-print_info "========== 编译 Go 程序 =========="
-
-BUILD_TAGS=""
-if [ "$EMBED_MODE" = true ]; then
-    BUILD_TAGS="-tags embed"
-    print_info "编译 Go 程序（嵌入模式）..."
-else
-    print_info "编译 Go 程序..."
-fi
-
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" $BUILD_TAGS -o "$DIST_DIR/UserFrontend" ./cmd/server
-
-# 获取文件大小
-FILE_SIZE=$(ls -lh "$DIST_DIR/UserFrontend" | awk '{print $5}')
-
-if [ "$EMBED_MODE" = true ]; then
-    print_success "编译完成: $DIST_DIR/UserFrontend ($FILE_SIZE) [嵌入模式]"
-else
-    print_success "编译完成: $DIST_DIR/UserFrontend ($FILE_SIZE) [外部资源模式]"
-fi
-
-# ==========================================
-#         嵌入模式：清理临时资源
-# ==========================================
+for os in $TARGET_OS; do
+    for arch in $TARGET_ARCH; do
+        
+        print_info "========== 构建 $os ($arch) =========="
+        
+        dir_name="${os}_${arch}"
+        if [ "$os" = "darwin" ]; then dir_name="macos_${arch}"; fi
+        
+        TARGET_DIR="$DIST_ROOT/$dir_name"
+        
+        # 清理
+        rm -rf "$TARGET_DIR"
+        mkdir -p "$TARGET_DIR"
+        
+        # 复制资源 (非嵌入模式)
+        if [ "$EMBED_MODE" != true ] && [ -d "web/out" ] && [ -z "$SKIP_FRONTEND" ]; then
+            cp -r "web/out" "$TARGET_DIR/web"
+            print_info "已复制前端资源"
+        fi
+        
+        # 创建必要目录
+        mkdir -p "$TARGET_DIR/user_config"
+        mkdir -p "$TARGET_DIR/Product"
+        mkdir -p "$TARGET_DIR/backups"
+        
+        # 编译
+        BIN_NAME="UserFrontend"
+        if [ "$os" = "windows" ]; then BIN_NAME="UserFrontend.exe"; fi
+        
+        BUILD_TAGS=""
+        if [ "$EMBED_MODE" = true ]; then BUILD_TAGS="-tags embed"; fi
+        
+        print_info "编译 Go ($os/$arch)..."
+        CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -ldflags="-s -w" $BUILD_TAGS -o "$TARGET_DIR/$BIN_NAME" ./cmd/server
+        
+        if [ $? -eq 0 ]; then
+            FILE_SIZE=$(du -h "$TARGET_DIR/$BIN_NAME" | cut -f1)
+            print_success "生成: $BIN_NAME ($FILE_SIZE)"
+        else
+            print_error "编译失败"
+            exit 1
+        fi
+        
+        # 启动脚本
+        START_SCRIPT="$TARGET_DIR/start.sh"
+        if [ "$os" = "windows" ]; then START_SCRIPT="$TARGET_DIR/start.bat"; fi
+        
+        if [ "$os" = "windows" ]; then
+            cat > "$START_SCRIPT" << EOF
+@echo off
+title User Frontend
+echo ========================================
+echo   User Frontend - Starting...
+echo ========================================
+echo.
+echo 访问地址: http://localhost:8080/
+echo.
+"%~dp0$BIN_NAME"
+pause
+EOF
+        else
+            cat > "$START_SCRIPT" << EOF
+#!/bin/bash
+echo "========================================"
+echo "  User Frontend - Starting..."
+echo "========================================"
+echo ""
+echo "访问地址: http://localhost:8080/"
+echo ""
+chmod +x ./$BIN_NAME
+./$BIN_NAME
+EOF
+            chmod +x "$START_SCRIPT"
+        fi
+        
+    done
+done
 
 if [ "$EMBED_MODE" = true ]; then
     cleanup_embed_resources
 fi
 
-# ==========================================
-#         复制前端资源（非嵌入模式）
-# ==========================================
-
-if [ "$EMBED_MODE" != true ]; then
-    if [ -d "web/out" ]; then
-        rm -rf "$DIST_DIR/web"
-        cp -r "web/out" "$DIST_DIR/web"
-        print_info "已复制前端资源"
-    fi
-fi
-
-# ==========================================
-#         创建启动脚本
-# ==========================================
-
-if [ "$EMBED_MODE" = true ]; then
-    cat > "$DIST_DIR/start.sh" << 'EOF'
-#!/bin/bash
-echo "========================================"
-echo "  User Frontend - Starting..."
-echo "  (嵌入模式 - 单文件运行)"
-echo "========================================"
-echo ""
-echo "访问地址: http://localhost:8080/"
-echo ""
-chmod +x ./UserFrontend
-./UserFrontend
-EOF
-else
-    cat > "$DIST_DIR/start.sh" << 'EOF'
-#!/bin/bash
-echo "========================================"
-echo "  User Frontend - Starting..."
-echo "========================================"
-echo ""
-echo "访问地址: http://localhost:8080/"
-echo ""
-chmod +x ./UserFrontend
-./UserFrontend
-EOF
-fi
-chmod +x "$DIST_DIR/start.sh"
-
-# ==========================================
-#         构建完成
-# ==========================================
+END_TIME=$(date +%s)
+DURATION=$((END_TIME - START_TIME))
 
 echo ""
 print_info "=========================================="
-print_success "  构建成功!"
+print_success "  构建全部完成! (耗时: ${DURATION}s)"
 print_info "=========================================="
-echo ""
-
-if [ "$EMBED_MODE" = true ]; then
-    print_info "构建模式: 嵌入模式（单文件）"
-else
-    print_info "构建模式: 外部资源模式"
-fi
-
-print_info "输出目录: $DIST_DIR"
-ls -la "$DIST_DIR"
-echo ""
-print_info "构建目录结构:"
-echo "  编译中间文件: $BUILD_DIR"
-echo "    ├── web/          (前端 .next)"
-echo "    └── node_modules/ (前端依赖)"
-echo ""
-print_info "运行命令: cd $DIST_DIR && ./start.sh"
+print_info "输出目录: $DIST_ROOT"
+ls -F "$DIST_ROOT"

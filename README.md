@@ -8,6 +8,11 @@
   <img src="https://img.shields.io/badge/License-GPL%20v3-blue?style=flat-square" alt="License">
 </p>
 
+> [!CAUTION]
+> **⚠️ 警告：本项目目前仍处于高度开发阶段（Alpha），功能尚未完全稳定。**
+> 
+> **严禁在生产环境中使用**，否则可能导致数据丢失、资金风险或安全漏洞。仅供学习、研究和测试使用。
+
 <p align="center">
   一个功能完整的卡密销售管理系统，支持多种支付方式、Redis 缓存、在线客服、多管理员权限管理。
 </p>
@@ -98,30 +103,66 @@
 
 ### 环境要求
 
-- Go 1.25+
-- Node.js 18+（前端构建）
+- **Go 1.25+** (后端编译)
+- **Node.js 18+** (前端构建)
+- **支持平台**: Windows, Linux, macOS (Intel & Apple Silicon)
 
-### 构建
+### 🛠️ 构建指南
 
-```bash
-# Windows
+本项目提供了强大的跨平台构建脚本，支持 **Windows**、**Linux** 和 **macOS**，以及 **x64 (AMD64)** 和 **ARM64** 架构。
+
+#### Windows (PowerShell)
+
+```powershell
+# 1. 默认构建 (Windows/amd64)
 .\build.ps1
 
-# Linux
+# 2. 嵌入模式 (单文件部署，推荐)
+.\build.ps1 -Embed
+
+# 3. 交叉编译其他平台
+.\build.ps1 -Linux               # 构建 Linux 版本
+.\build.ps1 -Mac                 # 构建 macOS 版本
+.\build.ps1 -All                 # 构建全平台 (Win/Lin/Mac)
+
+# 4. 构建 ARM 架构 (如 Surface Pro X, Raspberry Pi, Apple M1/M2)
+.\build.ps1 -Arm                 # 仅构建当前平台的 ARM64 版本
+.\build.ps1 -All -Arm            # 构建全平台的 ARM64 版本
+.\build.ps1 -All -Arm -X64       # 构建全平台的所有架构版本
+```
+
+#### Linux / macOS (Bash)
+
+```bash
+# 1. 默认构建 (当前系统)
 ./build.sh
 
-# 嵌入模式（单文件部署）
-.\build.ps1 --embed
+# 2. 嵌入模式 (单文件部署，推荐)
+./build.sh --embed
+
+# 3. 交叉编译其他平台
+./build.sh --linux               # 构建 Linux 版本
+./build.sh --mac                 # 构建 macOS 版本
+./build.sh --win                 # 构建 Windows 版本
+
+# 4. 构建 ARM 架构
+./build.sh --arm                 # 构建 ARM64 架构
+./build.sh --all --arm --x64     # 构建全平台的所有架构版本
 ```
 
 ### 运行
 
+构建产物位于 `dist/` 目录下。
+
 ```bash
 # Windows
-.\dist\windows\UserFrontend.exe
+.\dist\windows_amd64\UserFrontend.exe
 
 # Linux
-./dist/linux/UserFrontend
+./dist/linux_amd64/UserFrontend
+
+# macOS
+./dist/macos_arm64/UserFrontend
 ```
 
 ### 访问地址
@@ -314,14 +355,16 @@ alipay:
 
 ## 部署方式
 
-### 方式一：二进制部署
+### 方式一：二进制部署（推荐）
+
+使用“嵌入模式”构建后，您将获得一个包含所有依赖（前端资源、配置模板）的单一可执行文件，部署非常简单。
 
 ```bash
-# 1. 构建
-.\build.ps1 --embed
+# 1. 构建 (以 Windows 为例)
+.\build.ps1 -Embed
 
-# 2. 运行
-.\dist\windows\UserFrontend.exe
+# 2. 部署
+# 将生成的 UserFrontend.exe 上传到服务器即可直接运行
 ```
 
 ### 方式二：Docker 部署
@@ -457,6 +500,7 @@ volumes:
 ```
 KamiServer - 卡密销售管理系统
 Copyright (C) 2025
+
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by

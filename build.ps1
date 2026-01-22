@@ -3,30 +3,33 @@
 # ==========================================
 #
 # 用法:
-#   .\build.ps1              # 默认编译 Windows 版本（外部资源模式）
-#   .\build.ps1 --linux      # 仅编译 Linux 版本
-#   .\build.ps1 --all        # 编译所有平台版本
-#   .\build.ps1 --embed      # 将前端资源嵌入到程序中（单文件模式）
-#   .\build.ps1 --clean      # 清理构建目录
-#   .\build.ps1 --build      # 编译后移动前端缓存到 dist/build
+#   .\build.ps1                      # 默认编译 Windows/amd64 (外部资源模式)
+#   .\build.ps1 -Linux               # 编译 Linux/amd64
+#   .\build.ps1 -Mac                 # 编译 macOS/amd64
+#   .\build.ps1 -All                 # 编译所有平台 (Win, Lin, Mac) 的 amd64 版本
+#   .\build.ps1 -Arm                 # 编译 arm64 架构 (配合 -All 或特定平台使用)
+#   .\build.ps1 -All -Arm -X64       # 编译所有平台的所有架构
+#   .\build.ps1 -Embed               # 嵌入模式 (单文件)
+#   .\build.ps1 -Clean               # 清理
 #
-# 构建模式:
-#   外部资源模式（默认）：前端资源作为独立文件，程序从 ./web/ 目录加载
-#   嵌入模式（--embed）：前端资源打包进二进制文件，生成单个可执行文件
-#
-# 目录结构:
-#   dist/
-#   ├── build/              # 编译中间文件（仅 -Build 模式）
-#   │   ├── web/            # 前端 .next
-#   │   └── node_modules/   # 前端依赖
-#   ├── windows/            # Windows 最终输出
-#   └── linux/              # Linux 最终输出
+# 参数:
+#   -Windows, -Linux, -Mac: 指定目标操作系统
+#   -All:      选中所有操作系统
+#   -Arm:      包含 ARM64 架构
+#   -X64:      包含 AMD64 架构 (默认如果不指定 -Arm)
+#   -Embed:    嵌入前端资源
+#   -Force:    强制重新构建前端
+#   -SkipFrontend: 跳过前端构建
 #
 # ==========================================
 
 param(
+    [switch]$Windows,
     [switch]$Linux,
+    [switch]$Mac,
     [switch]$All,
+    [switch]$Arm,
+    [switch]$X64,
     [switch]$Clean,
     [switch]$Force,
     [switch]$SkipFrontend,
@@ -120,16 +123,21 @@ if ($Clean) {
 #         确定构建目标
 # ==========================================
 
-$BuildWindows = $true
-$BuildLinux = $false
-
-if ($Linux) {
-    $BuildWindows = $false
-    $BuildLinux = $true
-} elseif ($All) {
-    $BuildWindows = $true
-    $BuildLinux = $true
+$TargetOS = @()
+if ($All) {
+    $TargetOS += "windows", "linux", "darwin"
+} else {
+    if ($Windows) { $TargetOS += "windows" }
+    if ($Linux)   { $TargetOS += "linux" }
+    if ($Mac)     { $TargetOS += "darwin" }
 }
+if ($TargetOS.Count -eq 0) { $TargetOS += "windows" } # 默认 Windows
+
+$TargetArch = @()
+if ($Arm) { $TargetArch += "arm64" }
+if ($X64) { $TargetArch += "amd64" }
+# 如果没有指定架构，默认使用 amd64 (除非只指定了 -Arm)
+if ($TargetArch.Count -eq 0) { $TargetArch += "amd64" }
 
 $StartTime = Get-Date
 
@@ -140,8 +148,11 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 Write-Info "构建目标:"
-if ($BuildWindows) { Write-Host "  - Windows (amd64)" -ForegroundColor Gray }
-if ($BuildLinux) { Write-Host "  - Linux (amd64)" -ForegroundColor Gray }
+foreach ($os in $TargetOS) {
+    foreach ($arch in $TargetArch) {
+        Write-Host "  - $os ($arch)" -ForegroundColor Gray
+    }
+}
 if ($Embed) { Write-Host "  - 嵌入模式: 前端资源将打包进程序" -ForegroundColor Yellow }
 
 # ==========================================
@@ -384,16 +395,21 @@ function Cleanup-EmbedResources {
 
 function Build-Platform {
     param(
-        [string]$Platform,
+        [string]$Platform, # Windows, Linux, Darwin
         [string]$GOOS,
+        [string]$GOARCH,
         [string]$BinaryName,
         [bool]$EmbedMode
     )
     
     Write-Host ""
-    Write-Info "========== 构建 $Platform 版本 =========="
+    Write-Info "========== 构建 $Platform ($GOARCH) 版本 =========="
     
-    $TargetDir = Join-Path $DistDir $Platform.ToLower()
+    # 输出目录: dist/windows_amd64, dist/linux_arm64 等
+    $PlatformDir = $Platform.ToLower()
+    if ($Platform -eq "Darwin") { $PlatformDir = "macos" }
+    
+    $TargetDir = Join-Path $DistDir "${PlatformDir}_${GOARCH}"
     
     # 清理目标目录
     if (Test-Path $TargetDir) {
@@ -418,7 +434,7 @@ function Build-Platform {
     
     # 设置 Go 编译环境变量
     $env:GOOS = $GOOS
-    $env:GOARCH = "amd64"
+    $env:GOARCH = $GOARCH
     $env:CGO_ENABLED = "0"
     
     $OutputExe = Join-Path $TargetDir $BinaryName
@@ -427,9 +443,9 @@ function Build-Platform {
     $buildTags = ""
     if ($EmbedMode) {
         $buildTags = "-tags embed"
-        Write-Info "编译 Go 程序（嵌入模式）..."
+        Write-Info "编译 Go 程序 (嵌入模式, $GOOS/$GOARCH)..."
     } else {
-        Write-Info "编译 Go 程序..."
+        Write-Info "编译 Go 程序 ($GOOS/$GOARCH)..."
     }
     
     $buildCmd = "go build -ldflags=`"-s -w`" $buildTags -o `"$OutputExe`" ./cmd/server"
@@ -440,27 +456,16 @@ function Build-Platform {
     }
     
     # 创建启动脚本
+    $StartScriptName = if ($Platform -eq "Windows") { "start.bat" } else { "start.sh" }
+    $StartScriptPath = Join-Path $TargetDir $StartScriptName
+    
     if ($Platform -eq "Windows") {
-        if ($EmbedMode) {
-            $startScript = @"
-@echo off
-title User Frontend (Embedded)
-echo ========================================
-echo   User Frontend - Starting...
-echo   (嵌入模式 - 单文件运行)
-echo ========================================
-echo.
-echo 访问地址: http://localhost:8080/
-echo.
-"%~dp0$BinaryName"
-pause
-"@
-        } else {
-            $startScript = @"
+        $startContent = @"
 @echo off
 title User Frontend
 echo ========================================
 echo   User Frontend - Starting...
+if "$EmbedMode"=="True" echo   (嵌入模式)
 echo ========================================
 echo.
 echo 访问地址: http://localhost:8080/
@@ -468,15 +473,15 @@ echo.
 "%~dp0$BinaryName"
 pause
 "@
-        }
-        Set-Content -Path (Join-Path $TargetDir "start.bat") -Value $startScript
+        Set-Content -Path $StartScriptPath -Value $startContent
     } else {
-        if ($EmbedMode) {
-            $startScript = @"
+        $startContent = @"
 #!/bin/bash
 echo "========================================"
 echo "  User Frontend - Starting..."
-echo "  (嵌入模式 - 单文件运行)"
+if [ "$EmbedMode" = "True" ]; then
+    echo "  (嵌入模式)"
+fi
 echo "========================================"
 echo ""
 echo "访问地址: http://localhost:8080/"
@@ -484,20 +489,9 @@ echo ""
 chmod +x ./$BinaryName
 ./$BinaryName
 "@
-        } else {
-            $startScript = @"
-#!/bin/bash
-echo "========================================"
-echo "  User Frontend - Starting..."
-echo "========================================"
-echo ""
-echo "访问地址: http://localhost:8080/"
-echo ""
-chmod +x ./$BinaryName
-./$BinaryName
-"@
-        }
-        Set-Content -Path (Join-Path $TargetDir "start.sh") -Value $startScript -NoNewline
+        Set-Content -Path $StartScriptPath -Value $startContent -NoNewline
+        # 注意: Windows 上生成的 .sh 可能会有 CRLF 问题，尽量使用 Unix 换行符，但在 PowerShell 中较难控制
+        # 可以尝试转换为 LF
     }
     
     $OutputSize = (Get-Item $OutputExe).Length / 1MB
@@ -521,17 +515,23 @@ try {
         }
     }
     
-    if ($BuildWindows) {
-        $WinDir = Build-Platform -Platform "Windows" -GOOS "windows" -BinaryName "UserFrontend.exe" -EmbedMode $Embed
-        if ($WinDir) {
-            $BuildResults += @{ Platform = "Windows"; Dir = $WinDir }
-        }
-    }
-    
-    if ($BuildLinux) {
-        $LinuxDir = Build-Platform -Platform "Linux" -GOOS "linux" -BinaryName "UserFrontend" -EmbedMode $Embed
-        if ($LinuxDir) {
-            $BuildResults += @{ Platform = "Linux"; Dir = $LinuxDir }
+    foreach ($os in $TargetOS) {
+        foreach ($arch in $TargetArch) {
+            
+            $binName = "UserFrontend"
+            $goOS = $os
+            
+            if ($os -eq "windows") {
+                $binName += ".exe"
+            }
+            
+            $platformLabel = $os.Substring(0,1).ToUpper() + $os.Substring(1)
+            
+            $resDir = Build-Platform -Platform $platformLabel -GOOS $goOS -GOARCH $arch -BinaryName $binName -EmbedMode $Embed
+            
+            if ($resDir) {
+                $BuildResults += @{ Platform = "$platformLabel ($arch)"; Dir = $resDir }
+            }
         }
     }
     
@@ -558,12 +558,6 @@ try {
     Write-Host "========================================" -ForegroundColor Green
     Write-Host ""
     Write-Host "总耗时: $($Duration.TotalSeconds.ToString("N2")) 秒" -ForegroundColor Gray
-    if ($Embed) {
-        Write-Host "构建模式: 嵌入模式（单文件）" -ForegroundColor Yellow
-    } else {
-        Write-Host "构建模式: 外部资源模式" -ForegroundColor Gray
-    }
-    Write-Host ""
     
     # 显示输出目录结构
     Write-Info "输出目录结构:"
@@ -582,13 +576,6 @@ try {
             }
         }
     }
-    
-    # 构建目录结构说明
-    Write-Host ""
-    Write-Info "构建目录结构:"
-    Write-Host "  编译中间文件: $BuildDir" -ForegroundColor Gray
-    Write-Host "    ├── web/          (前端 .next)" -ForegroundColor Gray
-    Write-Host "    └── node_modules/ (前端依赖)" -ForegroundColor Gray
     
 } catch {
     Write-Host ""

@@ -1,13 +1,16 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"strconv"
 	"strings"
 	"time"
 
+	"user-frontend/internal/cache"
 	"user-frontend/internal/model"
 	"user-frontend/internal/repository"
 
@@ -20,6 +23,80 @@ type CouponService struct {
 
 func NewCouponService(repo *repository.Repository) *CouponService {
 	return &CouponService{repo: repo}
+}
+
+// ==================== 缓存辅助方法 ====================
+
+// cacheUserCoupons 缓存用户优惠券列表
+func (s *CouponService) cacheUserCoupons(userID uint, coupons []model.UserCoupon) {
+	cm := cache.GetManager()
+	if cm == nil {
+		return
+	}
+
+	key := cache.UserCouponsKey(userID)
+	data, err := json.Marshal(coupons)
+	if err != nil {
+		log.Printf("[CouponService] 序列化用户优惠券缓存失败: %v", err)
+		return
+	}
+
+	if err := cm.Set(key, string(data), cache.CouponTTL); err != nil {
+		log.Printf("[CouponService] 缓存用户优惠券失败: %v", err)
+	}
+}
+
+// getUserCouponsFromCache 从缓存获取用户优惠券
+func (s *CouponService) getUserCouponsFromCache(userID uint) []model.UserCoupon {
+	cm := cache.GetManager()
+	if cm == nil {
+		return nil
+	}
+
+	key := cache.UserCouponsKey(userID)
+	data, ok := cm.Get(key)
+	if !ok {
+		return nil
+	}
+
+	dataStr, ok := data.(string)
+	if !ok {
+		return nil
+	}
+
+	var coupons []model.UserCoupon
+	if err := json.Unmarshal([]byte(dataStr), &coupons); err != nil {
+		log.Printf("[CouponService] 反序列化用户优惠券缓存失败: %v", err)
+		return nil
+	}
+
+	return coupons
+}
+
+// invalidateUserCouponsCache 使用户优惠券缓存失效
+func (s *CouponService) invalidateUserCouponsCache(userID uint) {
+	cm := cache.GetManager()
+	if cm == nil {
+		return
+	}
+
+	key := cache.UserCouponsKey(userID)
+	if err := cm.Delete(key); err != nil {
+		log.Printf("[CouponService] 删除用户优惠券缓存失败: %v", err)
+	}
+}
+
+// invalidateAvailableCouponsCache 使可用优惠券缓存失效
+func (s *CouponService) invalidateAvailableCouponsCache() {
+	cm := cache.GetManager()
+	if cm == nil {
+		return
+	}
+
+	key := cache.AvailableCouponsKey()
+	if err := cm.Delete(key); err != nil {
+		log.Printf("[CouponService] 删除可用优惠券缓存失败: %v", err)
+	}
 }
 
 // GenerateCouponCode 生成优惠券码
@@ -79,6 +156,9 @@ func (s *CouponService) CreateCoupon(name, code, couponType string, value, minAm
 		return nil, err
 	}
 
+	// 使可用优惠券缓存失效
+	s.invalidateAvailableCouponsCache()
+
 	return coupon, nil
 }
 
@@ -112,12 +192,19 @@ func (s *CouponService) UpdateCoupon(id uint, name, couponType string, value, mi
 		return nil, err
 	}
 
+	// 使可用优惠券缓存失效
+	s.invalidateAvailableCouponsCache()
+
 	return coupon, nil
 }
 
 // DeleteCoupon 删除优惠券
 func (s *CouponService) DeleteCoupon(id uint) error {
-	return s.repo.DeleteCoupon(id)
+	err := s.repo.DeleteCoupon(id)
+	if err == nil {
+		s.invalidateAvailableCouponsCache()
+	}
+	return err
 }
 
 // GetAllCoupons 获取所有优惠券
@@ -224,7 +311,7 @@ func (s *CouponService) ValidateCoupon(code string, userID uint, productID uint,
 // UseCoupon 使用优惠券
 // 安全特性：使用事务保护，防止并发使用同一优惠券
 func (s *CouponService) UseCoupon(couponID, userID, orderID uint, orderNo string, discount float64) error {
-	return s.repo.GetDB().Transaction(func(tx *gorm.DB) error {
+	err := s.repo.GetDB().Transaction(func(tx *gorm.DB) error {
 		// 加锁获取优惠券，防止并发使用
 		var coupon model.Coupon
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&coupon, couponID).Error; err != nil {
@@ -265,6 +352,14 @@ func (s *CouponService) UseCoupon(couponID, userID, orderID uint, orderNo string
 
 		return nil
 	})
+
+	if err == nil {
+		// 使用户优惠券缓存失效
+		s.invalidateUserCouponsCache(userID)
+		s.invalidateAvailableCouponsCache()
+	}
+
+	return err
 }
 
 // GetCouponUsages 获取优惠券使用记录
@@ -371,16 +466,23 @@ func (s *CouponService) UseUserCoupon(userCouponID, userID uint, orderNo string)
 		s.repo.GetDB().Model(&userCoupon).Updates(map[string]interface{}{
 			"status": model.UserCouponStatusExpired,
 		})
+		s.invalidateUserCouponsCache(userID)
 		return errors.New("优惠券已过期")
 	}
 
 	// 更新状态为已使用
 	now := time.Now()
-	return s.repo.GetDB().Model(&userCoupon).Updates(map[string]interface{}{
+	err = s.repo.GetDB().Model(&userCoupon).Updates(map[string]interface{}{
 		"status":     model.UserCouponStatusUsed,
 		"used_at":    &now,
 		"used_order": orderNo,
 	}).Error
+
+	if err == nil {
+		s.invalidateUserCouponsCache(userID)
+	}
+
+	return err
 }
 
 // GetUserAvailableCoupons 获取用户可用优惠券列表（未使用且未过期）

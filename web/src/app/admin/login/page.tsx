@@ -78,7 +78,7 @@ export default function AdminLoginPage() {
     const basePath = getAdminBasePath()
     
     setLoading(true)
-    const res = await apiPost<{ require_totp?: boolean }>(`${basePath}/login`, {
+    const res = await apiPost<{ require_totp?: boolean; needs_setup?: boolean }>(`${basePath}/login`, {
       username,
       password,
       captcha_id: captchaId,
@@ -87,7 +87,10 @@ export default function AdminLoginPage() {
     })
     setLoading(false)
 
-    if (res.require_totp) {
+    if (res.needs_setup) {
+      // 需要初始化设置
+      window.location.href = `${basePath}/setup/`
+    } else if (res.require_totp) {
       // 需要TOTP验证
       window.location.href = `${basePath}/totp/`
     } else if (res.success) {

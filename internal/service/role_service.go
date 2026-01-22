@@ -314,6 +314,49 @@ func (s *RoleService) GetAdminByUsername(username string) (*model.Admin, error) 
 	return &admin, err
 }
 
+// CreateSuperAdmin 创建超级管理员（用于初始化设置）
+func (s *RoleService) CreateSuperAdmin(username, password string) error {
+	// 确保 super_admin 角色存在
+	var superRole model.AdminRole
+	err := s.repo.GetDB().Where("name = ?", "super_admin").First(&superRole).Error
+	if err != nil {
+		// 创建超级管理员角色
+		superRole = model.AdminRole{
+			Name:        "super_admin",
+			Description: "超级管理员，拥有所有权限",
+			Permissions: "[]", // 超级管理员不需要定义具体权限
+			IsSystem:    true,
+			Status:      1,
+		}
+		if err := s.repo.GetDB().Create(&superRole).Error; err != nil {
+			return err
+		}
+	}
+
+	// 检查用户名是否已存在
+	var count int64
+	s.repo.GetDB().Model(&model.Admin{}).Where("username = ?", username).Count(&count)
+	if count > 0 {
+		return errors.New("用户名已存在")
+	}
+
+	// 加密密码
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	admin := &model.Admin{
+		Username:     username,
+		PasswordHash: string(hashedPassword),
+		RoleID:       superRole.ID,
+		Nickname:     "超级管理员",
+		Status:       1,
+	}
+
+	return s.repo.GetDB().Create(admin).Error
+}
+
 // CreateAdmin 创建管理员
 func (s *RoleService) CreateAdmin(username, password, email, nickname string, roleID uint) (*model.Admin, error) {
 	// 检查用户名是否已存在于 admins 表

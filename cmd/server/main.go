@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"user-frontend/internal/api"
+	"user-frontend/internal/cache"
 	"user-frontend/internal/config"
 	"user-frontend/internal/model"
 	"user-frontend/internal/service"
@@ -112,6 +113,9 @@ func main() {
 		configSvc.SetMainDB(model.DB)
 	}
 
+	// 初始化缓存系统
+	initCacheSystem(configSvc)
+
 	// 初始化服务
 	api.InitServices(cfg)
 
@@ -140,6 +144,62 @@ func main() {
 	} else {
 		if err := r.Run(addr); err != nil {
 			log.Fatal("启动服务器失败:", err)
+		}
+	}
+}
+
+// initCacheSystem 初始化缓存系统
+func initCacheSystem(configSvc *service.ConfigService) {
+	// 从配置数据库加载Redis配置
+	redisConfig, err := configSvc.GetRedisConfig()
+	if err != nil {
+		log.Printf("警告: 加载Redis配置失败: %v, 将使用本地缓存", err)
+		cache.InitCacheManager(nil)
+		return
+	}
+
+	// 检查是否启用Redis
+	if !redisConfig.Enabled {
+		log.Println("Redis未启用，使用本地内存缓存")
+		cache.InitCacheManager(nil)
+		return
+	}
+
+	// 转换为缓存配置并初始化
+	cacheConfig := &cache.RedisConfig{
+		Enabled:          redisConfig.Enabled,
+		Mode:             redisConfig.Mode,
+		Host:             redisConfig.Host,
+		Port:             redisConfig.Port,
+		Password:         redisConfig.Password,
+		Database:         redisConfig.Database,
+		SentinelAddrs:    redisConfig.SentinelAddrs,
+		SentinelMaster:   redisConfig.SentinelMaster,
+		SentinelPassword: redisConfig.SentinelPassword,
+		ClusterAddrs:     redisConfig.ClusterAddrs,
+		PoolSize:         redisConfig.PoolSize,
+		MinIdleConns:     redisConfig.MinIdleConns,
+		MaxRetries:       redisConfig.MaxRetries,
+		DialTimeout:      redisConfig.DialTimeout,
+		ReadTimeout:      redisConfig.ReadTimeout,
+		WriteTimeout:     redisConfig.WriteTimeout,
+		KeyPrefix:        redisConfig.KeyPrefix,
+		DefaultTTL:       redisConfig.DefaultTTL,
+		EnableMetrics:    redisConfig.EnableMetrics,
+		TLSEnabled:       redisConfig.TLSEnabled,
+		TLSCert:          redisConfig.TLSCert,
+		TLSKey:           redisConfig.TLSKey,
+		TLSCACert:        redisConfig.TLSCACert,
+	}
+	cache.InitCacheManager(cacheConfig)
+
+	// 验证连接状态
+	manager := cache.GetCacheManager()
+	if manager != nil {
+		if err := manager.Ping(); err != nil {
+			log.Printf("警告: Redis连接失败: %v, 已降级到本地缓存", err)
+		} else {
+			log.Printf("Redis缓存已连接 (%s模式)", redisConfig.Mode)
 		}
 	}
 }

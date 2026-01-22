@@ -1,8 +1,11 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
+	"log"
 
+	"user-frontend/internal/cache"
 	"user-frontend/internal/model"
 	"user-frontend/internal/repository"
 )
@@ -13,6 +16,92 @@ type ProductService struct {
 
 func NewProductService(repo *repository.Repository) *ProductService {
 	return &ProductService{repo: repo}
+}
+
+// ==================== 缓存辅助方法 ====================
+
+// cacheProduct 缓存商品信息
+func (s *ProductService) cacheProduct(product *model.Product) {
+	cm := cache.GetManager()
+	if cm == nil {
+		return
+	}
+
+	key := cache.ProductKey(product.ID)
+	data, err := json.Marshal(product)
+	if err != nil {
+		log.Printf("[ProductService] 序列化商品缓存失败: %v", err)
+		return
+	}
+
+	if err := cm.Set(key, string(data), cache.ProductTTL); err != nil {
+		log.Printf("[ProductService] 缓存商品失败: %v", err)
+	}
+}
+
+// getProductFromCache 从缓存获取商品
+func (s *ProductService) getProductFromCache(productID uint) *model.Product {
+	cm := cache.GetManager()
+	if cm == nil {
+		return nil
+	}
+
+	key := cache.ProductKey(productID)
+	data, ok := cm.Get(key)
+	if !ok {
+		return nil
+	}
+
+	dataStr, ok := data.(string)
+	if !ok {
+		return nil
+	}
+
+	var product model.Product
+	if err := json.Unmarshal([]byte(dataStr), &product); err != nil {
+		log.Printf("[ProductService] 反序列化商品缓存失败: %v", err)
+		return nil
+	}
+
+	return &product
+}
+
+// invalidateProductCache 使商品缓存失效
+func (s *ProductService) invalidateProductCache(productID uint) {
+	cm := cache.GetManager()
+	if cm == nil {
+		return
+	}
+
+	key := cache.ProductKey(productID)
+	if err := cm.Delete(key); err != nil {
+		log.Printf("[ProductService] 删除商品缓存失败: %v", err)
+	}
+
+	// 同时清除商品列表缓存（因为商品变更会影响列表）
+	s.invalidateProductListCache()
+}
+
+// invalidateProductListCache 使商品列表缓存失效
+func (s *ProductService) invalidateProductListCache() {
+	cm := cache.GetManager()
+	if cm == nil {
+		return
+	}
+
+	// 清除常见的列表缓存键（这里只清除一些常用的分页参数）
+	// 由于列表缓存键包含分页参数，无法枚举所有，采用模式匹配或跳过
+	// 实际生产中可使用 Redis 的 SCAN 命令按前缀删除
+	commonPages := []int{1, 2, 3, 4, 5}
+	commonSizes := []int{10, 20, 50}
+	for _, page := range commonPages {
+		for _, size := range commonSizes {
+			for _, active := range []bool{true, false} {
+				key := cache.ProductListKey(page, size, active, 0)
+				cm.Delete(key)
+			}
+		}
+	}
 }
 
 // CreateProduct 创建商品
@@ -92,6 +181,9 @@ func (s *ProductService) UpdateProduct(id uint, name, description string, price 
 		return nil, err
 	}
 
+	// 更新成功后使缓存失效
+	s.invalidateProductCache(id)
+
 	return product, nil
 }
 
@@ -105,17 +197,39 @@ func (s *ProductService) UpdateProductFull(product *model.Product) error {
 	if existing.ProductType == model.ProductTypeManual {
 		product.Stock = existing.Stock
 	}
-	return s.repo.UpdateProduct(product)
+	err = s.repo.UpdateProduct(product)
+	if err == nil {
+		s.invalidateProductCache(product.ID)
+	}
+	return err
 }
 
 // DeleteProduct 删除商品
 func (s *ProductService) DeleteProduct(id uint) error {
-	return s.repo.DeleteProduct(id)
+	err := s.repo.DeleteProduct(id)
+	if err == nil {
+		s.invalidateProductCache(id)
+	}
+	return err
 }
 
-// GetProductByID 获取商品
+// GetProductByID 获取商品（支持缓存）
 func (s *ProductService) GetProductByID(id uint) (*model.Product, error) {
-	return s.repo.GetProductByID(id)
+	// 先从缓存获取
+	if product := s.getProductFromCache(id); product != nil {
+		return product, nil
+	}
+
+	// 从数据库获取
+	product, err := s.repo.GetProductByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	// 缓存商品
+	s.cacheProduct(product)
+
+	return product, nil
 }
 
 // GetAllProducts 获取所有商品
@@ -136,7 +250,11 @@ func (s *ProductService) UpdateProductStatus(id uint, status int) error {
 	}
 
 	product.Status = status
-	return s.repo.UpdateProduct(product)
+	err = s.repo.UpdateProduct(product)
+	if err == nil {
+		s.invalidateProductCache(id)
+	}
+	return err
 }
 
 // UpdateProductStock 更新商品库存
@@ -147,7 +265,11 @@ func (s *ProductService) UpdateProductStock(id uint, stock int) error {
 	}
 
 	product.Stock = stock
-	return s.repo.UpdateProduct(product)
+	err = s.repo.UpdateProduct(product)
+	if err == nil {
+		s.invalidateProductCache(id)
+	}
+	return err
 }
 
 // UpdateProductImageURL 更新商品图片URL
@@ -158,5 +280,9 @@ func (s *ProductService) UpdateProductImageURL(id uint, imageURL string) error {
 	}
 
 	product.ImageURL = imageURL
-	return s.repo.UpdateProduct(product)
+	err = s.repo.UpdateProduct(product)
+	if err == nil {
+		s.invalidateProductCache(id)
+	}
+	return err
 }

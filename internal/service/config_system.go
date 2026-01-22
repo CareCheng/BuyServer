@@ -101,7 +101,27 @@ func (s *ConfigService) SaveSystemConfig(cfg *SystemConfig) error {
 		EnableWhitelist:     cfg.EnableWhitelist,
 		IPWhitelist:         ipWhitelistJSON,
 	}
-	return s.repo.SaveSystemConfig(dbConfig)
+	
+	err := s.repo.SaveSystemConfig(dbConfig)
+	if err != nil {
+		return err
+	}
+	
+	// 同步更新内存中的 GlobalConfig
+	if config.GlobalConfig != nil {
+		config.GlobalConfig.SetServerConfig(config.ServerConfig{
+			Port:          config.GlobalConfig.ServerConfig.Port,
+			AdminUsername: cfg.AdminUsername,
+			AdminPassword: cfg.AdminPassword,
+			AdminSuffix:   cfg.AdminSuffix,
+			SystemTitle:   cfg.SystemTitle,
+			EnableLogin:   cfg.EnableLogin,
+			Enable2FA:     cfg.Enable2FA,
+			TOTPSecret:    cfg.TOTPSecret,
+		})
+	}
+	
+	return nil
 }
 
 // UpdateSystemTitle 更新系统标题
@@ -180,14 +200,25 @@ func (s *ConfigService) IsIPInWhitelist(ip string) bool {
 // NeedsInitialSetup 检查是否需要初始化设置（首次启动）
 // 返回 true 表示需要设置初始密码
 func (s *ConfigService) NeedsInitialSetup() bool {
-	cfg, err := s.GetSystemConfig()
-	if err != nil {
-		// 无法获取配置，可能是首次启动
-		return true
+	// 首先检查数据库中是否有系统配置记录
+	if s.repo != nil {
+		dbConfig, err := s.repo.GetSystemConfig()
+		if err != nil {
+			// 数据库没有配置记录，需要初始化
+			fmt.Printf("[NeedsInitialSetup] repo存在, 查询数据库失败: %v, 返回true\n", err)
+			return true
+		}
+		// 检查数据库中的密码是否为默认密码
+		result := dbConfig.AdminPassword == "admin123" || dbConfig.AdminPassword == ""
+		fmt.Printf("[NeedsInitialSetup] repo存在, 数据库密码=%s, 返回%v\n", dbConfig.AdminPassword, result)
+		return result
 	}
 	
-	// 检查密码是否为默认密码
-	return cfg.AdminPassword == "admin123" || cfg.AdminPassword == ""
+	// repo 未初始化，检查全局配置
+	cfg := config.GlobalConfig.ServerConfig
+	result := cfg.AdminPassword == "admin123" || cfg.AdminPassword == ""
+	fmt.Printf("[NeedsInitialSetup] repo为nil, GlobalConfig密码=%s, 返回%v\n", cfg.AdminPassword, result)
+	return result
 }
 
 // SetInitialPassword 设置初始管理员密码

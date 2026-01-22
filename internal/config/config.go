@@ -11,6 +11,7 @@ type Config struct {
 	ServerConfig  ServerConfig  `json:"server_config"`   // 服务器配置（运行时从主数据库加载）
 	PaymentConfig PaymentConfig `json:"payment_config"`  // 支付配置（运行时从主数据库加载）
 	EmailConfig   EmailConfig   `json:"email_config"`    // 邮箱配置（运行时从主数据库加载）
+	RedisConfig   RedisConfig   `json:"redis_config"`    // Redis 配置（从SQLite配置数据库加载）
 	ConfigDir     string        `json:"-"`
 	mu            sync.RWMutex
 }
@@ -117,6 +118,50 @@ type YiPayConfig struct {
 	ReturnURL string `json:"return_url"`
 }
 
+// RedisConfig Redis 配置结构
+//
+// 运行时使用的 Redis 配置，从数据库加载。
+type RedisConfig struct {
+	// Enabled 是否启用 Redis
+	Enabled bool `json:"enabled"`
+
+	// Mode 部署模式 (standalone/sentinel/cluster)
+	Mode string `json:"mode"`
+
+	// 单机模式配置
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Password string `json:"password"`
+	Database int    `json:"database"`
+
+	// 哨兵模式配置
+	SentinelAddrs    []string `json:"sentinel_addrs"`
+	SentinelMaster   string   `json:"sentinel_master"`
+	SentinelPassword string   `json:"sentinel_password"`
+
+	// 集群模式配置
+	ClusterAddrs []string `json:"cluster_addrs"`
+
+	// 连接池配置
+	PoolSize     int `json:"pool_size"`
+	MinIdleConns int `json:"min_idle_conns"`
+	MaxRetries   int `json:"max_retries"`
+	DialTimeout  int `json:"dial_timeout"`
+	ReadTimeout  int `json:"read_timeout"`
+	WriteTimeout int `json:"write_timeout"`
+
+	// 高级配置
+	KeyPrefix     string `json:"key_prefix"`
+	DefaultTTL    int    `json:"default_ttl"`
+	EnableMetrics bool   `json:"enable_metrics"`
+
+	// TLS 配置
+	TLSEnabled bool   `json:"tls_enabled"`
+	TLSCert    string `json:"tls_cert"`
+	TLSKey     string `json:"tls_key"`
+	TLSCACert  string `json:"tls_ca_cert"`
+}
+
 var (
 	GlobalConfig *Config
 	once         sync.Once
@@ -161,6 +206,24 @@ func (c *Config) LoadAll() error {
 	// 支付配置默认为空（实际值从数据库加载）
 	c.PaymentConfig = PaymentConfig{}
 
+	// Redis 配置默认为禁用（实际值从SQLite配置数据库加载）
+	c.RedisConfig = RedisConfig{
+		Enabled:      false,
+		Mode:         "standalone",
+		Host:         "127.0.0.1",
+		Port:         6379,
+		Database:     0,
+		PoolSize:     10,
+		MinIdleConns: 5,
+		MaxRetries:   3,
+		DialTimeout:  5,
+		ReadTimeout:  3,
+		WriteTimeout: 3,
+		KeyPrefix:    "user:",
+		DefaultTTL:   300,
+		EnableMetrics: true,
+	}
+
 	return nil
 }
 
@@ -169,4 +232,18 @@ func (c *Config) SetDBConfig(cfg DBConfig) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.DBConfig = cfg
+}
+
+// SetRedisConfig 设置 Redis 配置（由 ConfigService 调用）
+func (c *Config) SetRedisConfig(cfg RedisConfig) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.RedisConfig = cfg
+}
+
+// SetServerConfig 设置服务器配置（由 ConfigService 调用）
+func (c *Config) SetServerConfig(cfg ServerConfig) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ServerConfig = cfg
 }

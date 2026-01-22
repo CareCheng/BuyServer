@@ -1,6 +1,8 @@
 package api
 
 import (
+	"log"
+
 	"user-frontend/internal/config"
 	"user-frontend/internal/model"
 	"user-frontend/internal/utils"
@@ -17,10 +19,12 @@ func CheckInitialSetup(c *gin.Context) {
 	
 	if ConfigSvc != nil {
 		needsSetup = ConfigSvc.NeedsInitialSetup()
+		log.Printf("[CheckInitialSetup] ConfigSvc存在, needsSetup=%v", needsSetup)
 	} else {
 		// ConfigSvc 未初始化，检查全局配置
 		cfg := config.GlobalConfig.ServerConfig
 		needsSetup = cfg.AdminPassword == "admin123" || cfg.AdminPassword == ""
+		log.Printf("[CheckInitialSetup] ConfigSvc为nil, 检查GlobalConfig, password=%s, needsSetup=%v", cfg.AdminPassword, needsSetup)
 	}
 	
 	c.JSON(200, gin.H{
@@ -60,7 +64,7 @@ func SetInitialPassword(c *gin.Context) {
 		return
 	}
 	
-	// 设置密码
+	// 设置密码到配置
 	if ConfigSvc != nil {
 		if err := ConfigSvc.SetInitialPassword(req.Password); err != nil {
 			c.JSON(500, gin.H{"success": false, "error": err.Error()})
@@ -69,6 +73,48 @@ func SetInitialPassword(c *gin.Context) {
 	} else {
 		// 更新全局配置（内存中）
 		config.GlobalConfig.ServerConfig.AdminPassword = req.Password
+	}
+
+	// 同时创建或更新数据库中的管理员记录
+	if model.DBConnected {
+		// 优先使用 RoleSvc 创建新的 Admin 记录（角色权限系统）
+		if RoleSvc != nil {
+			// 检查是否已存在 admin 用户
+			existingAdmin, _ := RoleSvc.GetAdminByUsername("admin")
+			if existingAdmin == nil {
+				// 创建默认超级管理员
+				if err := RoleSvc.CreateSuperAdmin("admin", req.Password); err != nil {
+					// 记录错误但不中断，配置已保存成功
+					c.JSON(200, gin.H{
+						"success": true,
+						"message": "管理员密码设置成功（注意：数据库管理员创建失败，请使用配置文件登录）",
+						"warning": err.Error(),
+					})
+					return
+				}
+			} else {
+				// 更新现有管理员密码
+				if err := RoleSvc.UpdateAdminPassword(existingAdmin.ID, req.Password); err != nil {
+					c.JSON(200, gin.H{
+						"success": true,
+						"message": "管理员密码设置成功（注意：数据库密码更新失败）",
+						"warning": err.Error(),
+					})
+					return
+				}
+			}
+		} else if AdminSvc != nil {
+			// 回退到旧的 AdminService
+			if err := AdminSvc.InitDefaultAdmin("admin", req.Password); err != nil {
+				// 记录错误但不中断
+				c.JSON(200, gin.H{
+					"success": true,
+					"message": "管理员密码设置成功",
+					"warning": err.Error(),
+				})
+				return
+			}
+		}
 	}
 	
 	c.JSON(200, gin.H{
@@ -93,6 +139,12 @@ func AdminTOTPPage(c *gin.Context) {
 
 // AdminLogin 管理员登录
 func AdminLogin(c *gin.Context) {
+	// 检查是否需要初始化设置
+	if ConfigSvc != nil && ConfigSvc.NeedsInitialSetup() {
+		c.JSON(400, gin.H{"success": false, "error": "请先完成初始化设置", "needs_setup": true})
+		return
+	}
+
 	if !model.DBConnected {
 		// 数据库未连接时使用配置文件中的管理员账号
 		var req struct {
@@ -189,6 +241,7 @@ func AdminLogin(c *gin.Context) {
 	var adminUsername string
 	var adminRole string
 	var enable2FA bool
+	var verified bool
 
 	if RoleSvc != nil {
 		newAdmin, err := RoleSvc.VerifyAdminPassword(req.Username, req.Password)
@@ -201,29 +254,38 @@ func AdminLogin(c *gin.Context) {
 				adminRole = "admin"
 			}
 			enable2FA = newAdmin.Enable2FA
+			verified = true
 			// 更新登录信息
 			RoleSvc.UpdateAdminLoginInfo(newAdmin.ID, c.ClientIP())
-		} else {
-			// 新表验证失败，尝试旧表
-			oldAdmin, err := AdminSvc.Login(req.Username, req.Password, c.ClientIP())
-			if err != nil {
-				c.JSON(400, gin.H{"success": false, "error": "用户名或密码错误"})
-				return
-			}
+		}
+	}
+
+	// 新表验证失败，尝试旧的 admin_users 表
+	if !verified && AdminSvc != nil {
+		oldAdmin, err := AdminSvc.Login(req.Username, req.Password, c.ClientIP())
+		if err == nil {
 			adminUsername = oldAdmin.Username
 			adminRole = oldAdmin.Role
 			enable2FA = oldAdmin.Enable2FA
+			verified = true
 		}
-	} else {
-		// RoleSvc 未初始化，使用旧表
-		oldAdmin, err := AdminSvc.Login(req.Username, req.Password, c.ClientIP())
-		if err != nil {
-			c.JSON(400, gin.H{"success": false, "error": err.Error()})
-			return
+	}
+
+	// 数据库表都没有记录，回退到配置文件验证
+	if !verified {
+		cfg := config.GlobalConfig
+		if req.Username == cfg.ServerConfig.AdminUsername && req.Password == cfg.ServerConfig.AdminPassword {
+			adminUsername = cfg.ServerConfig.AdminUsername
+			adminRole = "super_admin"
+			enable2FA = cfg.ServerConfig.Enable2FA
+			verified = true
 		}
-		adminUsername = oldAdmin.Username
-		adminRole = oldAdmin.Role
-		enable2FA = oldAdmin.Enable2FA
+	}
+
+	// 所有验证方式都失败
+	if !verified {
+		c.JSON(400, gin.H{"success": false, "error": "用户名或密码错误"})
+		return
 	}
 
 	// 创建会话（数据库持久化）

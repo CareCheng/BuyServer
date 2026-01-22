@@ -1,8 +1,11 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
+	"log"
 
+	"user-frontend/internal/cache"
 	"user-frontend/internal/model"
 	"user-frontend/internal/repository"
 
@@ -19,8 +22,75 @@ func NewCartService(repo *repository.Repository) *CartService {
 	return &CartService{repo: repo}
 }
 
-// GetCart 获取用户购物车
+// ==================== 缓存辅助方法 ====================
+
+// cacheCart 缓存用户购物车
+func (s *CartService) cacheCart(userID uint, summary *model.CartSummary) {
+	cm := cache.GetManager()
+	if cm == nil {
+		return
+	}
+
+	key := cache.CartKey(userID)
+	data, err := json.Marshal(summary)
+	if err != nil {
+		log.Printf("[CartService] 序列化购物车缓存失败: %v", err)
+		return
+	}
+
+	if err := cm.Set(key, string(data), cache.CartTTL); err != nil {
+		log.Printf("[CartService] 缓存购物车失败: %v", err)
+	}
+}
+
+// getCartFromCache 从缓存获取购物车
+func (s *CartService) getCartFromCache(userID uint) *model.CartSummary {
+	cm := cache.GetManager()
+	if cm == nil {
+		return nil
+	}
+
+	key := cache.CartKey(userID)
+	data, ok := cm.Get(key)
+	if !ok {
+		return nil
+	}
+
+	dataStr, ok := data.(string)
+	if !ok {
+		return nil
+	}
+
+	var summary model.CartSummary
+	if err := json.Unmarshal([]byte(dataStr), &summary); err != nil {
+		log.Printf("[CartService] 反序列化购物车缓存失败: %v", err)
+		return nil
+	}
+
+	return &summary
+}
+
+// invalidateCartCache 使购物车缓存失效
+func (s *CartService) invalidateCartCache(userID uint) {
+	cm := cache.GetManager()
+	if cm == nil {
+		return
+	}
+
+	key := cache.CartKey(userID)
+	if err := cm.Delete(key); err != nil {
+		log.Printf("[CartService] 删除购物车缓存失败: %v", err)
+	}
+}
+
+// GetCart 获取用户购物车（支持缓存）
 func (s *CartService) GetCart(userID uint) (*model.CartSummary, error) {
+	// 先从缓存获取
+	if summary := s.getCartFromCache(userID); summary != nil {
+		return summary, nil
+	}
+
+	// 从数据库获取
 	db := s.repo.GetDB()
 	var items []model.CartItem
 
@@ -42,6 +112,9 @@ func (s *CartService) GetCart(userID uint) (*model.CartSummary, error) {
 			summary.TotalPrice += item.Product.Price * float64(item.Quantity)
 		}
 	}
+
+	// 缓存购物车
+	s.cacheCart(userID, summary)
 
 	return summary, nil
 }
@@ -83,6 +156,8 @@ func (s *CartService) AddToCart(userID, productID uint, quantity int) (*model.Ca
 		}
 		// 加载商品信息
 		db.Preload("Product").First(&existingItem, existingItem.ID)
+		// 使缓存失效
+		s.invalidateCartCache(userID)
 		return &existingItem, nil
 	} else if err != gorm.ErrRecordNotFound {
 		return nil, err
@@ -100,6 +175,8 @@ func (s *CartService) AddToCart(userID, productID uint, quantity int) (*model.Ca
 
 	// 加载商品信息
 	db.Preload("Product").First(item, item.ID)
+	// 使缓存失效
+	s.invalidateCartCache(userID)
 	return item, nil
 }
 
@@ -126,17 +203,29 @@ func (s *CartService) UpdateCartItem(userID, itemID uint, quantity int) error {
 	}
 
 	item.Quantity = quantity
-	return db.Save(&item).Error
+	err := db.Save(&item).Error
+	if err == nil {
+		s.invalidateCartCache(userID)
+	}
+	return err
 }
 
 // RemoveFromCart 从购物车移除商品
 func (s *CartService) RemoveFromCart(userID, itemID uint) error {
-	return s.repo.GetDB().Where("id = ? AND user_id = ?", itemID, userID).Delete(&model.CartItem{}).Error
+	err := s.repo.GetDB().Where("id = ? AND user_id = ?", itemID, userID).Delete(&model.CartItem{}).Error
+	if err == nil {
+		s.invalidateCartCache(userID)
+	}
+	return err
 }
 
 // ClearCart 清空购物车
 func (s *CartService) ClearCart(userID uint) error {
-	return s.repo.GetDB().Where("user_id = ?", userID).Delete(&model.CartItem{}).Error
+	err := s.repo.GetDB().Where("user_id = ?", userID).Delete(&model.CartItem{}).Error
+	if err == nil {
+		s.invalidateCartCache(userID)
+	}
+	return err
 }
 
 // GetCartItemCount 获取购物车商品数量
@@ -151,6 +240,7 @@ func (s *CartService) ValidateCart(userID uint) ([]model.CartItem, []string, err
 	db := s.repo.GetDB()
 	var items []model.CartItem
 	var warnings []string
+	cacheInvalidated := false
 
 	err := db.Preload("Product").Where("user_id = ?", userID).Find(&items).Error
 	if err != nil {
@@ -163,12 +253,14 @@ func (s *CartService) ValidateCart(userID uint) ([]model.CartItem, []string, err
 			// 商品已删除
 			db.Delete(&item)
 			warnings = append(warnings, "部分商品已下架，已自动移除")
+			cacheInvalidated = true
 			continue
 		}
 		if item.Product.Status != 1 {
 			// 商品已下架
 			db.Delete(&item)
 			warnings = append(warnings, item.Product.Name+" 已下架，已自动移除")
+			cacheInvalidated = true
 			continue
 		}
 		if item.Product.Stock != -1 && item.Product.Stock < item.Quantity {
@@ -177,13 +269,20 @@ func (s *CartService) ValidateCart(userID uint) ([]model.CartItem, []string, err
 				item.Quantity = item.Product.Stock
 				db.Save(&item)
 				warnings = append(warnings, item.Product.Name+" 库存不足，已调整数量")
+				cacheInvalidated = true
 			} else {
 				db.Delete(&item)
 				warnings = append(warnings, item.Product.Name+" 已售罄，已自动移除")
+				cacheInvalidated = true
 				continue
 			}
 		}
 		validItems = append(validItems, item)
+	}
+
+	// 如果有变更，使缓存失效
+	if cacheInvalidated {
+		s.invalidateCartCache(userID)
 	}
 
 	return validItems, warnings, nil

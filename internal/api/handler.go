@@ -3,6 +3,8 @@
 package api
 
 import (
+	"log"
+
 	"user-frontend/internal/config"
 
 	"github.com/gin-gonic/gin"
@@ -84,8 +86,10 @@ func OptionalAuth() gin.HandlerFunc {
 // AdminAuthRequired 管理员认证中间件
 func AdminAuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		log.Printf("[AdminAuthRequired] EnableLogin=%v", config.GlobalConfig.ServerConfig.EnableLogin)
 		// 如果禁用了登录验证，直接放行
 		if !config.GlobalConfig.ServerConfig.EnableLogin {
+			log.Printf("[AdminAuthRequired] 登录验证已禁用，直接放行")
 			c.Set("admin_username", config.GlobalConfig.ServerConfig.AdminUsername)
 			c.Set("admin_role", "super_admin")
 			c.Next()

@@ -517,6 +517,18 @@ func registerAdminSettingsRoutes(adminAPI *gin.RouterGroup) {
 	adminAPI.POST("/stripe/test", StripeTestConnection)
 	adminAPI.POST("/usdt/test", USDTTestConnection)
 	adminAPI.POST("/usdt/confirm", AdminConfirmUSDTPayment)
+
+	// Redis配置
+	adminAPI.GET("/redis/config", AdminGetRedisConfig)
+	adminAPI.POST("/redis/config", AdminSaveRedisConfig)
+	adminAPI.POST("/redis/test", AdminTestRedisConnection)
+	adminAPI.GET("/redis/stats", AdminGetCacheStats)
+	adminAPI.GET("/redis/dashboard", AdminGetCacheDashboard)
+	adminAPI.GET("/redis/keys", AdminGetCacheKeys)
+	adminAPI.DELETE("/redis/key", AdminDeleteCacheKey)
+	adminAPI.GET("/redis/key/info", AdminGetCacheKeyInfo)
+	adminAPI.POST("/redis/flush", AdminFlushCache)
+	adminAPI.POST("/redis/refresh", AdminRefreshCache)
 }
 
 

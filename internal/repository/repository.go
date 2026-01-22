@@ -638,6 +638,13 @@ func (r *Repository) DeleteUserSessionsByUserID(userID uint) error {
 	return r.db.Where("user_id = ?", userID).Delete(&model.UserSession{}).Error
 }
 
+// GetUserSessionsByUserID 获取用户的所有会话
+func (r *Repository) GetUserSessionsByUserID(userID uint) ([]*model.UserSession, error) {
+	var sessions []*model.UserSession
+	err := r.db.Where("user_id = ?", userID).Find(&sessions).Error
+	return sessions, err
+}
+
 // ==================== 管理员会话相关操作 ====================
 
 func (r *Repository) CreateAdminSession(session *model.AdminSession) error {
@@ -687,6 +694,13 @@ func (r *Repository) DeleteLoginFailureRecord(key string) error {
 func (r *Repository) DeleteExpiredLoginFailureRecords(window time.Duration) error {
 	expireTime := time.Now().Add(-window * 2)
 	return r.db.Where("updated_at < ?", expireTime).Delete(&model.LoginFailureRecord{}).Error
+}
+
+// CountActiveLoginFailures 统计活跃的登录失败记录数
+func (r *Repository) CountActiveLoginFailures() (int64, error) {
+	var count int64
+	err := r.db.Model(&model.LoginFailureRecord{}).Count(&count).Error
+	return count, err
 }
 
 

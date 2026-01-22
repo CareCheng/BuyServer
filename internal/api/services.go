@@ -82,8 +82,11 @@ func InitServices(cfg *config.Config) {
 		// 初始化扩展服务
 		initExtendedServices(repo)
 		
-		// 初始化默认管理员
-		AdminSvc.InitDefaultAdmin(cfg.ServerConfig.AdminUsername, cfg.ServerConfig.AdminPassword)
+		// 只有在初始化设置完成后（密码不是默认值）才创建管理员
+		// 避免用默认密码 admin123 创建管理员
+		if ConfigSvc != nil && !ConfigSvc.NeedsInitialSetup() {
+			AdminSvc.InitDefaultAdmin(cfg.ServerConfig.AdminUsername, cfg.ServerConfig.AdminPassword)
+		}
 
 		// 启动定时任务
 		go startScheduledTasks()
